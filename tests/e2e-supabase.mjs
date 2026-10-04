@@ -71,6 +71,10 @@ try {
   // ---------- 系統管理員：登入、匯入舊資料 ----------
   const S = await phone([ADMIN.email, ADMIN.password]);
   check('一般人看不到匯入匯出', !(await vis(S, '#importBtn')));
+  check('網站最下方顯示版本號', /^v\d+\.\d+/.test(await text(S, '#verBtn')), await text(S, '#verBtn'));
+  await S.click('#verBtn');
+  check('點版本號看到更新紀錄', await vis(S, '#verCard'));
+  await S.click('#verBtn');
   await S.click('#loginBtn');
   check('系統管理員登入', await until(() => vis(S, '#importBtn')));
   if (IMPORT_FILE && existsSync(IMPORT_FILE)) {

@@ -946,5 +946,14 @@ $('delCompBtn').onclick=async()=>{
   if(await run(sb.from('comps').delete().eq('id',id))){ delete comps[id]; render(); }
 };
 
+/* ---------- 版本資訊 ---------- */
+(function(){
+  const log=window.CHANGELOG||[], btn=$('verBtn');
+  if(!log.length){ btn.hidden=true; return; }
+  btn.textContent=`${log[0].version}・更新紀錄`;
+  $('verList').innerHTML=log.map(v=>`<h3>${esc(v.version)}<small>${esc(v.date||'')}</small></h3><ul>${(v.notes||[]).map(n=>`<li>${esc(n)}</li>`).join('')}</ul>`).join('');
+  btn.onclick=()=>{ const open=$('verCard').hidden; $('verCard').hidden=!open; btn.setAttribute('aria-expanded',String(open)); };
+})();
+
 init();
 setInterval(tick,250);
