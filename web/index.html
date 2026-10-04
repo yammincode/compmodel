@@ -64,6 +64,11 @@
       </div>
       <p class="note">設 0 分鐘：每輪結束就停，手動開始下一輪。設 1 分鐘以上：攀爬、休息自動輪替。</p>
     </div>
+    <div class="field">
+      <label>計時方式</label>
+      <div class="seg mode-seg" id="sMode"></div>
+      <p class="note" id="sModeNote"></p>
+    </div>
     <button class="btn big" id="startComp">建立比賽</button>
   </div>
 </section>
@@ -76,9 +81,9 @@
       <div class="t-clock" id="tClock"></div>
     </div>
     <div class="t-btns">
-      <button class="main edit-only" id="tToggle">開始</button>
-      <button class="edit-only" id="tNext" aria-label="跳到下一階段">⏭</button>
-      <button class="edit-only" id="tReset" aria-label="重設這一輪">↺</button>
+      <button class="main t-ctl" id="tToggle">開始</button>
+      <button class="t-ctl" id="tNext" aria-label="跳到下一階段">⏭</button>
+      <button class="t-ctl" id="tReset" aria-label="重設這一輪">↺</button>
       <button id="tSound" aria-label="提示音開關">🔔</button>
     </div>
   </div>
@@ -87,6 +92,7 @@
   <p class="title" id="title"></p>
   <p class="rule" id="ruleLine"></p>
   <div class="banner" id="modeBanner"></div>
+  <div class="sub" id="timerLine" hidden style="margin:-4px 0 12px"><span class="hint" id="timerLineText"></span><button class="link" id="tSwitch" hidden></button></div>
   <div class="sub" id="shareLine" style="margin:-4px 0 12px"><span class="hint">把比賽連結傳給選手，點開就能報名</span><button class="link" id="shareBtn">複製比賽連結</button></div>
 
   <section class="card" id="joinCard" hidden>
@@ -147,6 +153,11 @@
     </div>
   </section>
 
+  <section class="card edit-only" id="modeBox">
+    <h2 style="margin-bottom:10px">計時方式</h2>
+    <div class="seg mode-seg" id="modeSeg"></div>
+    <p class="hint" id="modeNote" style="margin:0"></p>
+  </section>
   <div class="foot edit-only">
     <button class="link" id="selfToggle"></button>
     <button class="link danger" id="resetBtn">清除成績</button>
