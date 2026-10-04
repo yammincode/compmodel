@@ -33,6 +33,8 @@ button:focus-visible,input:focus-visible,.row:focus-visible{outline:3px solid va
 .rule{color:var(--muted);font-size:.875rem;margin:4px 0 12px}
 .banner{font-size:.8rem;padding:8px 12px;border-radius:10px;background:var(--panel);color:var(--muted);margin-bottom:12px}
 .banner b{color:var(--ink)}
+.banner.error{background:var(--top);color:var(--top-ink);line-height:1.6}
+.banner.error b{color:inherit}
 .center{text-align:center;padding:48px 16px;color:var(--muted)}
 
 .setup h1{font-size:1.6rem;font-weight:900;margin:8px 0 4px}
