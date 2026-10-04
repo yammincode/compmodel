@@ -1,0 +1,9 @@
+# 選手姓名與照片，不能上傳到 GitHub
+data/
+
+# 由 scripts/build-config.mjs 產生（內含 Supabase 設定）
+web/config.js
+
+node_modules/
+.DS_Store
+.env
