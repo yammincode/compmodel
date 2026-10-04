@@ -87,9 +87,10 @@ async function loadComps(){
   try{
     const rows=await fetchAll('comps',null,['id']);
     const o={}; rows.forEach(r=>o[r.id]=compFromRow(r)); comps=o; compsLoaded=true;
+    setProblem('comps', null);
     if(compId&&!comps[compId]) leaveComp();
     render();
-  }catch(e){ console.warn('load comps failed',e); }
+  }catch(e){ setProblem('comps', e); }
 }
 let entriesLoadedFor=null;
 async function loadCompData(id){
@@ -161,14 +162,39 @@ document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible'&&started){ syncClock(); resync(); }
 });
 
+/* ---------- 連線問題說明：把 Supabase 的錯誤翻成白話，告訴主辦哪裡設定錯 ---------- */
+let setupProblems={};   // {comps: '...', anon: '...'}
+function explainError(e){
+  const msg=String((e&&(e.message||e.msg||e.error_description))||e||'');
+  const code=String((e&&(e.code||e.error_code))||'');
+  if(/secret API key|service_role/i.test(msg)) return 'Netlify 的 SUPABASE_ANON_KEY 填成了 secret / service_role key。請改成 anon public key 或 Publishable key，然後重新部署。';
+  if(/Invalid API key|No API key|apikey|JWS|JWT|Unauthorized/i.test(msg)||code==='401') return 'Netlify 的 SUPABASE_ANON_KEY 不正確（可能少複製了一段）。請到 Supabase → Project Settings → API Keys 重新複製，然後重新部署。';
+  if(/anonymous sign-ins are disabled/i.test(msg)||code==='anonymous_provider_disabled') return '匿名登入還沒打開：Supabase → Authentication → Sign In / Providers → 打開 Allow anonymous sign-ins。';
+  if(/rate limit|too many/i.test(msg)||code==='over_request_rate_limit') return '匿名登入次數超過上限：Supabase → Authentication → Rate Limits，把匿名登入上限調高（例如 300）。';
+  if(/does not exist|Could not find the table|schema cache/i.test(msg)||code==='42P01'||code==='PGRST205') return '資料庫還沒建立：請到 Supabase → SQL Editor 貼上整份 supabase/schema.sql 並按 Run。';
+  if(/permission denied/i.test(msg)||code==='42501') return '資料庫權限沒設好：請到 Supabase → SQL Editor 重新執行整份 supabase/schema.sql。';
+  if(/Failed to fetch|NetworkError|Load failed|network/i.test(msg)) return `連不到 Supabase（${CFG.supabaseUrl}）。請確認 Netlify 的 SUPABASE_URL 是 https://xxxx.supabase.co 這種格式，以及 Supabase 專案沒有被暫停（Paused）。`;
+  return '連線發生問題：'+msg;
+}
+function setProblem(key, e){
+  if(e) console.warn(key, e);
+  const next=e?explainError(e):null;
+  if(next===(setupProblems[key]||null)) return;
+  if(next) setupProblems[key]=next; else delete setupProblems[key];
+  if(started) render();
+}
+
 /* ---------- 登入 ---------- */
 let started=false, signingIn=false;
 async function init(){
   if(!window.supabase||!CFG.supabaseUrl||!CFG.supabaseAnonKey){
-    $('loadingView').textContent='尚未設定 Supabase：請在 Netlify 設定 SUPABASE_URL 與 SUPABASE_ANON_KEY（本機測試請建立 config.js）。';
+    $('loadingView').textContent=!window.supabase
+      ? '載入 Supabase 程式失敗，請檢查網路後重新整理。'
+      : '尚未設定 Supabase：請在 Netlify 設定 SUPABASE_URL 與 SUPABASE_ANON_KEY（本機測試請建立 config.js）。';
     return;
   }
-  sb=window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
+  try{ sb=window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey); }
+  catch(e){ $('loadingView').textContent='Supabase 設定錯誤：'+explainError(e); return; }
   syncClock();
   // 注意：這個 callback 裡不能直接 await Supabase，所以用 setTimeout 移出去
   sb.auth.onAuthStateChange((event,session)=>{ setTimeout(()=>onSession(session),0); });
@@ -180,7 +206,8 @@ async function onSession(session){
     signingIn=true;
     const {error}=await sb.auth.signInAnonymously();
     signingIn=false;
-    if(error){ console.warn('anonymous sign-in failed',error); myId=null; isSuper=false; isAnon=true; boot(); }
+    if(error){ setProblem('anon', error); myId=null; isSuper=false; isAnon=true; boot(); }
+    else setProblem('anon', null);
     return;
   }
   if(user.id===myId){ boot(); return; }
@@ -200,7 +227,7 @@ function refreshRole(){
 }
 function boot(){
   if(!started){
-    started=true; startCompsChannel();
+    started=true; loadComps(); startCompsChannel();
     const id=new URLSearchParams(location.search).get('c');
     if(id) openComp(id,true);
   }
@@ -211,7 +238,12 @@ $('loginBtn').onclick=async()=>{
   const email=prompt('管理員 Email'); if(!email) return;
   const pw=prompt('密碼'); if(!pw) return;
   const {error}=await sb.auth.signInWithPassword({email:email.trim(), password:pw});
-  if(error) alert('登入失敗，請確認 Email 和密碼。');
+  if(!error) return;
+  console.warn('admin login failed', error);
+  const m=String(error.message||'');
+  if(/invalid login credentials/i.test(m)) alert('登入失敗：Email 或密碼錯誤。\n\n（如果忘記密碼，可以到 Supabase → Authentication → Users 重設。）');
+  else if(/email not confirmed/i.test(m)) alert('登入失敗：這個帳號還沒確認。\n\n請到 Supabase → Authentication → Users，刪掉這個帳號重建，建立時勾選 Auto Confirm User。');
+  else alert('登入失敗：'+explainError(error));
 };
 
 /* ---------- 匯出／匯入（系統管理員） ---------- */
@@ -312,6 +344,7 @@ function openComp(id, replaceUrl){
   const url='?c='+encodeURIComponent(id);
   if(location.search!==url) history[replaceUrl?'replaceState':'pushState']({c:id},'',url);
   startCompChannel(id);
+  loadCompData(id);
   loadRole(id);
   render(); window.scrollTo(0,0);
 }
@@ -723,12 +756,16 @@ function banner(){
   return myEntry() ? '<b>選手</b>：切到路線就能記錄自己的成績。' : '<b>選手</b>：填名字報名後，就能自己記錄成績。';
 }
 function renderPortal(){
-  $('portalBanner').innerHTML=banner();
+  const probs=[...new Set(Object.values(setupProblems))];
+  $('portalBanner').classList.toggle('error', probs.length>0);
+  $('portalBanner').innerHTML=probs.length
+    ? '<b>⚠️ 網站設定有問題，請主辦或管理員處理：</b><br>'+probs.map(esc).join('<br>')
+    : banner();
   $('loginBtn').textContent=(myId&&!isAnon)?`登出（${myEmail}）`:'管理員登入';
   const list=$('compList'); list.innerHTML='';
   const items=Object.entries(comps).filter(([,c])=>c&&Array.isArray(c.divisions)&&c.divisions.length)
     .sort((a,b)=>(b[1].createdAt||0)-(a[1].createdAt||0));
-  if(!items.length){ list.innerHTML=`<li class="empty">${compsLoaded?'還沒有比賽，按上面的按鈕建立第一場。':'載入中…'}</li>`; return; }
+  if(!items.length){ list.innerHTML=`<li class="empty">${compsLoaded?'還沒有比賽，按上面的按鈕建立第一場。':setupProblems.comps?'無法載入比賽清單。':'載入中…'}</li>`; return; }
   items.forEach(([id,c])=>{
     const li=document.createElement('li'); li.className='comp-item'; li.tabIndex=0;
     const d=c.createdAt?new Date(c.createdAt):null;
