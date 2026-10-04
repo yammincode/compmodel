@@ -103,6 +103,7 @@ try {
   check('一般人看得到「建立新比賽」', await until(() => vis(A, '#newCompBtn')));
   await A.click('#newCompBtn'); await A.fill('#sTitle', '小明的練習賽');
   const n1 = alerts.length;
+  check('建立比賽可選三種計時方式（預設教練統一計時）', await A.locator('#sMode button').count() === 3 && (await A.innerText('#sMode .on')).includes('教練計時'));
   await A.click('#startComp');
   await until(() => alerts.length > n1);
   const k = (alerts.at(-1).match(/管理碼：([A-Z0-9]{6})/) || [])[1] || '';
@@ -165,6 +166,19 @@ try {
   await C.click('#tToggle');
   check('協同主辦暫停，大家同步', await until(() => text(A, '#tToggle').then(t => /開始|繼續/.test(t))), await text(A, '#tToggle'));
   check('協同主辦看得到管理碼', await until(() => text(C, '#keyLine').then(t => t.includes(k))));
+
+  // ---------- 計時方式切換 ----------
+  await A.click('#modeSeg [data-mode="self"]');
+  check('切成「學員各自計時」，選手可以自己控制計時', await until(() => vis(B, '#tToggle')) && (await text(B, '#tPhase')).includes('我的計時'));
+  await B.click('#tToggle');
+  check('選手開始自己的計時', await until(() => text(B, '#tToggle').then(t => t.includes('暫停'))));
+  check('選手自己的計時不影響別人', (await text(C, '#tToggle')).includes('開始'), await text(C, '#tToggle'));
+  await A.click('#modeSeg [data-mode="both"]');
+  check('切成「兩種都可以」，選手預設看教練計時（不能控制）', await until(() => vis(B, '#tSwitch')) && await until(() => text(B, '#timerLineText').then(t => t.includes('教練計時'))) && !(await vis(B, '#tToggle')));
+  await B.click('#tSwitch');
+  check('選手按 ⇄ 切換成自己的計時（剛才的計時還在跑）', await until(() => text(B, '#timerLineText').then(t => t.includes('我的計時'))) && await vis(B, '#tToggle') && (await text(B, '#tToggle')).includes('暫停'));
+  await A.click('#modeSeg [data-mode="shared"]');
+  check('切回「教練統一計時」，選手不能控制、沒有切換鈕', await until(() => B.evaluate(() => $('tSwitch').hidden && $('timerLine').hidden)) && !(await vis(B, '#tToggle')) && !(await text(B, '#tPhase')).includes('我的計時'));
 
   // ---------- 主辦幫選手記分、刪除選手 ----------
   await A.click('.row:has-text("阿華")');

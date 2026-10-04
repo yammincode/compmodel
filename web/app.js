@@ -373,7 +373,7 @@ window.addEventListener('popstate',()=>{
 $('backBtn').onclick=goPortal;
 $('setupBack').onclick=()=>{ page='portal'; render(); };
 $('newCompBtn').onclick=()=>{
-  draft={ divs:[{name:'男子組',routes:5},{name:'女子組',routes:5}], climb:4, rest:0 };
+  draft={ divs:[{name:'男子組',routes:5},{name:'女子組',routes:5}], climb:4, rest:0, timerMode:'shared' };
   $('sTitle').value='原岩模擬賽'; page='setup'; render(); window.scrollTo(0,0);
 };
 $('shareBtn').onclick=async()=>{
@@ -445,7 +445,7 @@ function rankList(items){ let prev=null,pr=0; return items.map((it,i)=>{ const r
 function esc(s){ return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
 /* ---------- 建立比賽 ---------- */
-let draft={ divs:[{name:'男子組',routes:5},{name:'女子組',routes:5}], climb:4, rest:0 };
+let draft={ divs:[{name:'男子組',routes:5},{name:'女子組',routes:5}], climb:4, rest:0, timerMode:'shared' };
 const LIMITS={ climb:[1,15], rest:[0,10] };
 document.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>{
   const k=b.dataset.step,[lo,hi]=LIMITS[k];
@@ -453,6 +453,7 @@ document.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>{
 });
 function renderSetup(){
   $('sClimb').textContent=draft.climb; $('sRest').textContent=draft.rest;
+  renderModeSeg($('sMode'), $('sModeNote'), draft.timerMode, m=>{ draft.timerMode=m; renderSetup(); });
   const box=$('divDraft'); box.innerHTML='';
   draft.divs.forEach((d,i)=>{
     const el=document.createElement('div'); el.className='divcard';
@@ -473,7 +474,7 @@ $('startComp').onclick=async()=>{
   const divs=draft.divs.map((d,i)=>({ id:uid(), name:(d.name||'').trim().slice(0,30)||`組別 ${i+1}`,
     routes:Array.from({length:d.routes},(_,k)=>({id:uid(),name:`路線 ${k+1}`})) }));
   const row={ id, title:($('sTitle').value.trim()||'模擬賽').slice(0,100), owner_id:myId, divisions:divs,
-    config:{climbMin:draft.climb,restMin:draft.rest}, timer:DEFAULT_TIMER, self_scoring:true };
+    config:{climbMin:draft.climb,restMin:draft.rest,timerMode:draft.timerMode}, timer:DEFAULT_TIMER, self_scoring:true };
   const {error}=await sb.from('comps').insert(row);
   $('startComp').disabled=false;
   if(error){ console.warn(error); alert('建立失敗，請重新整理後再試一次。'); return; }
@@ -486,10 +487,31 @@ $('startComp').onclick=async()=>{
 };
 
 /* ---------- 計時器 ---------- */
+// 計時方式：shared 教練統一計時（存在資料庫、所有手機同步）／self 學員各自計時（存在自己手機）／both 兩種都可以切換
+const TIMER_MODES=[
+  ['shared','教練統一計時','教練控制計時，所有手機同步。','教練計時'],
+  ['self','學員各自計時','每個人在自己的手機上開始／暫停，互不影響。','各自計時'],
+  ['both','兩種都可以','預設看教練的計時，學員可以切換成自己的計時。','兩種都可'],
+];
+const OWN_KEY='origin-climb-own-timers';
+let ownTimers={};   // {比賽id: {timer, useOwn}}，只存在這台手機
+try{ ownTimers=JSON.parse(localStorage.getItem(OWN_KEY)||'{}')||{}; }catch(e){}
+function saveOwn(){ try{ localStorage.setItem(OWN_KEY, JSON.stringify(ownTimers)); }catch(e){} }
+function own(){ return ownTimers[compId]=ownTimers[compId]||{timer:{...DEFAULT_TIMER}, useOwn:false}; }
 function cfg(){ return M.comp.config; }
-function elapsedNow(){ const t=M.comp.timer; return t.running ? t.elapsed+(now()-t.startedAt) : t.elapsed; }
+function timerMode(){ const m=M.comp&&M.comp.config&&M.comp.config.timerMode; return m==='self'||m==='both'?m:'shared'; }
+function modeName(m){ return (TIMER_MODES.find(x=>x[0]===m)||TIMER_MODES[0])[1]; }
+function usingOwn(){ const m=timerMode(); return m==='self'||(m==='both'&&own().useOwn); }
+function curTimer(){ return usingOwn()?own().timer:M.comp.timer; }
+function canControlTimer(){ return usingOwn()||isAdmin; }
+function renderModeSeg(box, note, cur, onPick){
+  box.innerHTML='';
+  TIMER_MODES.forEach(([m,,,name])=>{ const b=document.createElement('button'); b.type='button'; b.dataset.mode=m; b.className=m===cur?'on':''; b.textContent=name; b.onclick=()=>onPick(m); box.appendChild(b); });
+  note.textContent=(TIMER_MODES.find(x=>x[0]===cur)||TIMER_MODES[0])[2];
+}
+function elapsedNow(){ const t=curTimer(); return t.running ? t.elapsed+(now()-t.startedAt) : t.elapsed; }
 function timerView(){
-  const t=M.comp.timer, c=cfg(), climb=c.climbMin*MIN, rest=c.restMin*MIN, E=Math.max(0,elapsedNow());
+  const t=curTimer(), c=cfg(), climb=c.climbMin*MIN, rest=c.restMin*MIN, E=Math.max(0,elapsedNow());
   if(rest>0){
     const cycle=climb+rest, n=Math.floor(E/cycle), within=E-n*cycle, inClimb=within<climb;
     return { round:t.round+n, phase:inClimb?'climb':'rest', remain:inClimb?climb-within:cycle-within, over:false, cycleStart:n*cycle };
@@ -497,25 +519,35 @@ function timerView(){
   return { round:t.round, phase:'climb', remain:Math.max(0,climb-E), over:E>=climb, cycleStart:0 };
 }
 function fmt(ms){ const s=Math.ceil(ms/1000),m=Math.floor(s/60),r=s%60; return `${m}:${String(r).padStart(2,'0')}`; }
+// 改目前正在用的計時器（自己的就存在手機，教練的就寫進資料庫）
 function setTimer(p){
+  if(usingOwn()){ const o=own(); o.timer={...o.timer,...p}; saveOwn(); render(); return Promise.resolve(true); }
+  return setSharedTimer(p);
+}
+function setSharedTimer(p){
   const id=compId, timer={...M.comp.timer,...p};
   comps[id]={...M.comp, timer}; render();
   return run(sb.from('comps').update({timer}).eq('id',id));
 }
 $('tToggle').onclick=()=>{
   beep(0,0.001);
-  const t=M.comp.timer, v=timerView();
+  if(!canControlTimer()) return;
+  const t=curTimer(), v=timerView();
   if(v.over) return setTimer({round:t.round+1,elapsed:0,running:true,startedAt:now()});
   if(t.running) setTimer({running:false,elapsed:elapsedNow()});
   else setTimer({running:true,startedAt:now()});
 };
 $('tNext').onclick=()=>{
-  if(!confirm('結束這個階段，跳到下一階段？')) return;
-  const t=M.comp.timer,c=cfg(),v=timerView(),climb=c.climbMin*MIN,rest=c.restMin*MIN;
+  if(!canControlTimer()||!confirm('結束這個階段，跳到下一階段？')) return;
+  const t=curTimer(),c=cfg(),v=timerView(),climb=c.climbMin*MIN,rest=c.restMin*MIN;
   if(rest>0) setTimer({elapsed: v.phase==='climb'? v.cycleStart+climb : v.cycleStart+climb+rest, startedAt:now()});
   else setTimer({round:t.round+1,elapsed:0,running:false});
 };
-$('tReset').onclick=()=>{ if(!confirm('把這一輪的時間重設回開頭？')) return; setTimer({elapsed:timerView().cycleStart,running:false}); };
+$('tReset').onclick=()=>{ if(!canControlTimer()||!confirm('把這一輪的時間重設回開頭？')) return; setTimer({elapsed:timerView().cycleStart,running:false}); };
+$('tSwitch').onclick=()=>{
+  if(timerMode()!=='both') return;
+  const o=own(); o.useOwn=!o.useOwn; saveOwn(); last=null; render();
+};
 $('tSound').onclick=()=>{ prefs.sound=!prefs.sound; savePrefs(); if(prefs.sound) beep(880,0.1); renderTimer(); };
 
 let audioCtx=null, wakeLock=null, last=null;
@@ -542,7 +574,7 @@ async function keepAwake(on){
 }
 function tick(){
   if(page!=='comp'||!M.comp||!divisions().length) return;
-  const t=M.comp.timer,v=timerView(),sec=Math.ceil(v.remain/1000),key=v.round+v.phase;
+  const t=curTimer(),v=timerView(),sec=Math.ceil(v.remain/1000),key=(usingOwn()?'own':'shared')+v.round+v.phase;
   if(t.running&&last){
     if(last.key!==key||(!last.over&&v.over)) beep(last.phase==='climb'?440:1040,0.8);
     else if(sec!==last.sec){
@@ -556,14 +588,21 @@ function tick(){
 }
 function renderTimer(){
   if(page!=='comp'||!M.comp||!divisions().length) return;
-  const t=M.comp.timer,v=timerView(),el=$('timer');
+  const t=curTimer(),v=timerView(),el=$('timer'),mode=timerMode();
   $('tClock').textContent=v.over?'時間到':fmt(v.remain);
-  $('tPhase').textContent=`第 ${v.round} 輪・`+(v.phase==='climb'?'攀爬':'休息／換場')+(t.running||v.over?'':'（暫停）');
+  $('tPhase').textContent=(mode!=='shared'&&usingOwn()?'我的計時・':'')+`第 ${v.round} 輪・`+(v.phase==='climb'?'攀爬':'休息／換場')+(t.running||v.over?'':'（暫停）');
   el.classList.toggle('rest',v.phase==='rest');
   el.classList.toggle('warn',v.phase==='climb'&&!v.over&&v.remain<=60000);
   el.classList.toggle('over',v.over);
   $('tToggle').textContent=v.over?'下一輪':t.running?'暫停':(elapsedNow()>0?'繼續':'開始');
   $('tSound').textContent=prefs.sound?'🔔':'🔕';
+  const ctl=canControlTimer();
+  document.querySelectorAll('.t-ctl').forEach(e=>e.style.display=ctl?'':'none');
+  $('timerLine').hidden=mode==='shared';
+  $('tSwitch').hidden=mode!=='both';
+  $('timerLineText').textContent=mode==='self'?'⏱ 各自計時：上方計時器只在你的手機上跑'
+    :usingOwn()?'⏱ 目前顯示：我的計時':'⏱ 目前顯示：教練計時';
+  $('tSwitch').textContent=usingOwn()?'⇄ 切換回教練計時':'⇄ 切換成我的計時';
 }
 
 /* ---------- 路線照片（壓縮到長邊 1000px JPEG 再上傳到 Storage） ---------- */
@@ -808,7 +847,7 @@ function render(){
   const photoSet=new Set(Object.keys(M.photos));
 
   $('title').textContent=M.comp.title;
-  $('ruleLine').textContent=ds.map(d=>`${d.name} ${d.routes.length} 條`).join('、')+`・每輪攀爬 ${c1.climbMin} 分鐘`+(c1.restMin?`、休息 ${c1.restMin} 分鐘`:'')+'。Zone 10 分、Top 25 分，第二次起每次扣 0.1 分。';
+  $('ruleLine').textContent=ds.map(d=>`${d.name} ${d.routes.length} 條`).join('、')+`・每輪攀爬 ${c1.climbMin} 分鐘`+(c1.restMin?`、休息 ${c1.restMin} 分鐘`:'')+`・${modeName(timerMode())}`+'。Zone 10 分、Top 25 分，第二次起每次扣 0.1 分。';
   $('modeBanner').innerHTML=banner();
   const me=myEntry(), selfOpen=M.comp.selfScoring!==false;
   $('keyLine').hidden=!(isAdmin&&compKey);
@@ -826,6 +865,12 @@ function render(){
     const md=ds.find(d=>d.id===me.division);
     $('meText').textContent=`你以「${me.name}」報名${md?md.name:''}`+(selfOpen?'':'・主辦尚未開放自行記分');
   }
+  if(isAdmin) renderModeSeg($('modeSeg'), $('modeNote'), timerMode(), m=>{
+    if(m===timerMode()) return;
+    const config={...cfg(), timerMode:m};
+    comps[compId]={...M.comp, config}; last=null; render();
+    run(sb.from('comps').update({config}).eq('id',compId));
+  });
   $('selfToggle').textContent=selfOpen?'選手自行記分：開放中（點此關閉）':'選手自行記分：已關閉（點此開放）';
 
   const dt=$('divtabs'); dt.innerHTML=''; dt.hidden=ds.length<2;
@@ -977,7 +1022,7 @@ $('resetBtn').onclick=async()=>{
   await run(sb.from('results').delete().eq('comp_id',id));
   await run(sb.from('climbers').delete().eq('comp_id',id));
   await run(sb.from('entries').delete().eq('comp_id',id));
-  if(compId===id) await setTimer({...DEFAULT_TIMER});
+  if(compId===id) await setSharedTimer({...DEFAULT_TIMER});
 };
 $('delCompBtn').onclick=async()=>{
   if(!confirm(`刪除「${M.comp.title}」？所有選手、成績和照片都會一起刪除，無法復原。`)) return;
