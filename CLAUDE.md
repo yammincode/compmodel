@@ -49,7 +49,7 @@
 6. 用兩支手機實測：主辦計時、選手報名記分、管理碼取回權限
 
 ## 版本資訊（每次更新都要做）
-- 版本紀錄在 `web/changelog.js`，網站最下方會顯示目前版本，點開可看更新紀錄。
+- 版本紀錄在 `web/changelog.js`，網站最下方所有人都看得到目前版本號；「更新紀錄」只有系統管理員登入後才能點開。
 - **每次更新程式都要在 `window.CHANGELOG` 最上面加一筆**：版本號比上一版加 0.1（v1.0 → v1.1 → v1.2 … v1.9 → v2.0），日期用當天，`notes` 用白話繁體中文寫這次改了什麼（給 Yam 和使用者看的，不寫技術細節）。
 - commit 訊息開頭也標上版本號，例如「v1.1：新增…」。
 
@@ -58,7 +58,7 @@
 - `supabase/schema.sql`：資料庫結構＋權限（RLS）＋照片 Storage 桶子 `route-photos`＋Realtime，可重複執行。
 - `supabase/check-setup.sql`：給 Yam 在 Supabase SQL Editor 執行的健康檢查（只讀，會模擬選手報名並回復），出問題時先請他跑這個。
 - `supabase/tests/rls-test.sql`：資料庫權限測試（用 psql 執行，整段 rollback 不留資料）。
-- `tests/e2e-supabase.mjs`：Playwright 端對端測試，連真的 Supabase（本機自架或測試專案），用法寫在檔案開頭。上次結果 59/59。
+- `tests/e2e-supabase.mjs`：Playwright 端對端測試，連真的 Supabase（本機自架或測試專案），用法寫在檔案開頭。上次結果 60/60。
 - `docs/上線步驟.md`：給 Yam 的 Supabase／Netlify 設定步驟。
 - 舊資料搬移：做在網站裡（系統管理員登入 →「匯入資料」），可吃 Firebase 匯出檔和本系統的備份檔；照片會上傳到 Storage。
 - 計時方式（v1.3）：`comps.config.timerMode` = `shared`（教練統一計時，預設）／`self`（學員各自計時）／`both`（可切換）。學員自己的計時存在手機 localStorage（`origin-climb-own-timers`），不進資料庫。
