@@ -829,6 +829,7 @@ function render(){
   refreshRole();
   document.querySelectorAll('.edit-only').forEach(e=>e.style.display=(page==='comp'&&isAdmin)?'':'none');
   document.querySelectorAll('.super-only').forEach(e=>e.style.display=isSuper?'':'none');
+  if(!isSuper) $('verCard').hidden=true;
   $('newCompBtn').hidden=!myId;
   if(page==='setup'&&!myId) page='portal';
   const inComp = page==='comp' && M.comp && divisions().length;
@@ -1036,9 +1037,10 @@ $('delCompBtn').onclick=async()=>{
 
 /* ---------- 版本資訊 ---------- */
 (function(){
+  // 所有人都看得到版本號；更新紀錄只有系統管理員能點開（按鈕是 super-only，由 render() 控制）
   const log=window.CHANGELOG||[], btn=$('verBtn');
   if(!log.length){ btn.hidden=true; return; }
-  btn.textContent=`${log[0].version}・更新紀錄`;
+  $('verText').textContent=log[0].version;
   $('verList').innerHTML=log.map(v=>`<h3>${esc(v.version)}<small>${esc(v.date||'')}</small></h3><ul>${(v.notes||[]).map(n=>`<li>${esc(n)}</li>`).join('')}</ul>`).join('');
   btn.onclick=()=>{ const open=$('verCard').hidden; $('verCard').hidden=!open; btn.setAttribute('aria-expanded',String(open)); };
 })();
