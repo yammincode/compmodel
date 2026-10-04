@@ -26,6 +26,10 @@ create table if not exists comps (
   check (octet_length(divisions::text) < 20000)
 );
 
+-- 比賽到期自動刪除（建立後 10 天）；expires_at 是空的 = 系統管理員設定永久保留
+-- 新增欄位時，已經存在的比賽會從「現在」起算 10 天
+alter table comps add column if not exists expires_at timestamptz default (now() + interval '10 days');
+
 -- 管理碼（只有主辦看得到）
 create table if not exists comp_keys (
   comp_id text primary key references comps(id) on delete cascade,
@@ -177,11 +181,36 @@ begin
   if new.owner_id is distinct from old.owner_id and not is_super() then
     raise exception '不能變更主辦';
   end if;
+  if new.expires_at is distinct from old.expires_at and not is_super() then
+    raise exception '只有系統管理員可以變更自動刪除日期';
+  end if;
   return new;
 end $$;
 drop trigger if exists trg_guard_owner on comps;
 drop trigger if exists trg_guard_comp on comps;
 create trigger trg_guard_comp before update on comps for each row execute function guard_comp();
+
+-- 建立比賽時一律設成 10 天後刪除（系統管理員匯入時可以自己指定）
+create or replace function set_comp_expiry() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_super() then
+    new.expires_at := now() + interval '10 days';
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_comp_expiry on comps;
+create trigger trg_comp_expiry before insert on comps for each row execute function set_comp_expiry();
+
+-- 刪除已到期的比賽（選手、成績、照片紀錄會跟著刪除），由下面的排程每天執行
+create or replace function delete_expired_comps() returns integer
+language plpgsql security definer set search_path = public as $$
+declare n integer;
+begin
+  delete from comps where expires_at is not null and expires_at < now();
+  get diagnostics n = row_count;
+  return n;
+end $$;
 
 -- 舊版草稿留下的函式（已被 guard_entry / guard_comp 取代）
 drop function if exists guard_entry_results();
@@ -251,6 +280,7 @@ grant select, insert, update, delete on app_admins, comps, comp_keys, comp_admin
 revoke all on claim_failures from anon, authenticated;
 grant execute on function is_super(), is_comp_admin(text), server_now_ms(), claim_comp_admin(text, text) to anon, authenticated;
 revoke execute on function new_comp_key() from public, anon, authenticated;
+revoke execute on function delete_expired_comps() from public, anon, authenticated;
 
 -- ---------- 照片儲存（Storage） ----------
 -- 公開讀取的 route-photos 桶子，只收 2MB 以下的圖片
@@ -285,6 +315,11 @@ begin
     end if;
   end loop;
 end $$;
+
+-- ---------- 每天自動刪除到期的比賽（排程 pg_cron） ----------
+-- 每天 UTC 19:00 = 台灣時間凌晨 3:00 執行。同名排程重複執行只會更新，不會重複建立。
+create extension if not exists pg_cron;
+do $$ begin perform cron.schedule('delete-expired-comps', '0 19 * * *', 'select public.delete_expired_comps()'); end $$;
 
 -- ---------- 設定系統管理員 ----------
 -- 先在 Authentication → Users → Add user 建立 Yam 的 Email 帳號，再把下面這行的 email 換掉、取消註解後執行：
