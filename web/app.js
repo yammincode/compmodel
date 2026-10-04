@@ -55,12 +55,18 @@ const photoFromRow=r=>({ path:r.image_path, url:publicUrl(r.image_path), w:r.w, 
 
 /* ---------- 寫入與錯誤處理 ---------- */
 let warned=false;
+// 錯誤的技術細節（小字附在提示最後，截圖給開發者看用）
+function errDetail(e){
+  const code=e&&e.code, msg=String((e&&e.message)||e||'').slice(0,160);
+  return msg?`\n\n（錯誤代碼：${code||'-'}・${msg}）`:'';
+}
 function writeFailed(error){
   console.warn('write failed', error);
   const msg=(error&&error.message)||'';
   if(msg.includes('自行記分')) alert('主辦已關閉自行記分，這筆成績沒有存到。');
-  else if(error&&(error.code==='42501'||/row-level security|permission/i.test(msg))) alert('你沒有權限做這件事。');
-  else if(!warned){ warned=true; alert('資料沒有存成功，請檢查網路後再試一次。'); setTimeout(()=>warned=false,5000); }
+  else if(error&&(error.code==='42501'||/row-level security|permission/i.test(msg)))
+    alert('你沒有權限做這件事。\n\n如果這是不應該被擋的操作（例如選手報名），請主辦到 Supabase 的 SQL Editor 執行健康檢查 supabase/check-setup.sql。'+errDetail(error));
+  else if(!warned){ warned=true; alert('資料沒有存成功，請檢查網路後再試一次。'+errDetail(error)); setTimeout(()=>warned=false,5000); }
   resync();
 }
 // 執行一個 Supabase 寫入，失敗就提示並重新同步資料

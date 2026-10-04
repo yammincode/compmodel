@@ -56,6 +56,7 @@
 ## 目前進度與檔案結構（Supabase 版）
 - `web/`：網站本體（Netlify 發布這個資料夾）。`index.html` 畫面、`style.css`、`app.js` 程式；`config.js` 由 `scripts/build-config.mjs` 在 Netlify 建置時從環境變數 `SUPABASE_URL`、`SUPABASE_ANON_KEY` 產生，不進 Git。
 - `supabase/schema.sql`：資料庫結構＋權限（RLS）＋照片 Storage 桶子 `route-photos`＋Realtime，可重複執行。
+- `supabase/check-setup.sql`：給 Yam 在 Supabase SQL Editor 執行的健康檢查（只讀，會模擬選手報名並回復），出問題時先請他跑這個。
 - `supabase/tests/rls-test.sql`：資料庫權限測試（用 psql 執行，整段 rollback 不留資料）。
 - `tests/e2e-supabase.mjs`：Playwright 端對端測試，連真的 Supabase（本機自架或測試專案），用法寫在檔案開頭。上次結果 52/52。
 - `docs/上線步驟.md`：給 Yam 的 Supabase／Netlify 設定步驟。

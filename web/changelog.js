@@ -2,6 +2,14 @@
 // 第一筆就是目前版本，會顯示在網站最下方。
 window.CHANGELOG = [
   {
+    version: 'v1.2',
+    date: '2026-10-04',
+    notes: [
+      '新增資料庫健康檢查（supabase/check-setup.sql）：貼到 Supabase 執行，會逐項檢查設定並實際模擬選手報名',
+      '資料存不進去時，提示會附上錯誤代碼，方便找出原因'
+    ]
+  },
+  {
     version: 'v1.1',
     date: '2026-10-04',
     notes: [
