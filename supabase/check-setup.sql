@@ -66,6 +66,17 @@ begin
   insert into _check(項目,結果,說明) values ('照片儲存桶 route-photos', case when ok then '✅' else '❌' end,
     case when ok then '' else '缺少：請重新執行 supabase/schema.sql' end);
 
+  -- 5b. 十天自動刪除
+  ok := exists(select 1 from information_schema.columns where table_schema='public' and table_name='comps' and column_name='expires_at');
+  insert into _check(項目,結果,說明) values ('比賽自動刪除日期欄位', case when ok then '✅' else '❌' end,
+    case when ok then '' else '缺少：請重新執行最新的 supabase/schema.sql' end);
+  ok := false;
+  if to_regclass('cron.job') is not null then
+    execute 'select exists(select 1 from cron.job where jobname=''delete-expired-comps'' and active)' into ok;
+  end if;
+  insert into _check(項目,結果,說明) values ('每天自動刪除到期比賽的排程', case when ok then '✅' else '❌' end,
+    case when ok then '每天台灣時間凌晨 3:00 執行' else '缺少：請重新執行最新的 supabase/schema.sql（會自動開啟 pg_cron 排程）' end);
+
   -- 6. 帳號
   insert into _check(項目,結果,說明) select '匿名登入（選手）',
     case when count(*)>0 then '✅' else '⚠️' end,

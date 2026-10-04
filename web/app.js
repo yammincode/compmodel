@@ -45,13 +45,25 @@ const iso=v=>new Date(v||Date.now()).toISOString();
 const rKey=(cid,rid)=>cid+'__'+rid;
 function compFromRow(r){
   return { id:r.id, title:r.title, ownerId:r.owner_id, divisions:Array.isArray(r.divisions)?r.divisions:[],
-    config:r.config||{climbMin:4,restMin:0}, timer:r.timer||DEFAULT_TIMER, selfScoring:r.self_scoring!==false, createdAt:ms(r.created_at) };
+    config:r.config||{climbMin:4,restMin:0}, timer:r.timer||DEFAULT_TIMER, selfScoring:r.self_scoring!==false, createdAt:ms(r.created_at),
+    expiresAt:r.expires_at===undefined?undefined:(r.expires_at?ms(r.expires_at):null) };   // null = 永久保留；undefined = 舊版資料庫沒有這個欄位
 }
 const climberFromRow=r=>({ name:r.name, division:r.division, createdAt:ms(r.created_at) });
 const resultFromRow=r=>({ attempts:r.attempts||[] });
 const entryFromRow=r=>({ name:r.name, division:r.division, joinedAt:ms(r.joined_at), results:r.results||{} });
 const publicUrl=p=>sb.storage.from(BUCKET).getPublicUrl(p).data.publicUrl;
 const photoFromRow=r=>({ path:r.image_path, url:publicUrl(r.image_path), w:r.w, h:r.h, marks:r.marks||[], at:ms(r.updated_at) });
+
+/* ---------- 十天自動刪除 ---------- */
+const DAY=86400000;
+function isExpired(c){ return !!(c&&c.expiresAt&&c.expiresAt<now()); }
+function expiryText(c, long){
+  if(!c||c.expiresAt===undefined) return '';
+  if(c.expiresAt===null) return long?'📌 系統管理員已設定永久保留，不會自動刪除':'永久保留';
+  const d=Math.ceil((c.expiresAt-now())/DAY), dt=new Date(c.expiresAt), md=`${dt.getMonth()+1}/${dt.getDate()}`;
+  const left=d<=1?'明天前':`${d} 天後`;
+  return long?`🗓 這場比賽會在 ${md}（${left}）自動刪除，需要保留請找系統管理員`:`${left}自動刪除`;
+}
 
 /* ---------- 寫入與錯誤處理 ---------- */
 let warned=false;
@@ -89,11 +101,26 @@ async function fetchAll(table, cid, order){
 }
 
 /* ---------- 讀取與即時同步 ---------- */
+// 比賽被自動刪除後照片檔會留在 Storage，系統管理員登入時順手清掉（每次開網站最多一次）
+let photosCleaned=false;
+async function cleanOrphanPhotos(){
+  if(!isSuper||photosCleaned||!compsLoaded) return;
+  photosCleaned=true;
+  try{
+    const {data:folders}=await sb.storage.from(BUCKET).list('',{limit:1000});
+    for(const f of folders||[]){
+      if(f.id||comps[f.name]) continue;     // f.id 有值代表是檔案不是資料夾
+      const {data:files}=await sb.storage.from(BUCKET).list(f.name,{limit:1000});
+      if(files&&files.length) await sb.storage.from(BUCKET).remove(files.map(x=>`${f.name}/${x.name}`));
+    }
+  }catch(e){ console.warn('clean photos failed',e); }
+}
 async function loadComps(){
   try{
     const rows=await fetchAll('comps',null,['id']);
     const o={}; rows.forEach(r=>o[r.id]=compFromRow(r)); comps=o; compsLoaded=true;
     setProblem('comps', null);
+    cleanOrphanPhotos();
     if(compId&&!comps[compId]) leaveComp();
     render();
   }catch(e){ setProblem('comps', e); }
@@ -223,6 +250,7 @@ async function onSession(session){
   if(!isAnon){
     const {data}=await sb.from('app_admins').select('user_id').eq('user_id',myId);
     isSuper=!!(data&&data.length);
+    if(isSuper) setTimeout(cleanOrphanPhotos,0);
   }
   if(changed&&compId) openComp(compId,true);
   boot();
@@ -262,7 +290,7 @@ $('exportBtn').onclick=async()=>{
       fetchAll('comps',null,['id']), fetchAll('comp_keys',null,['comp_id']), fetchAll('climbers',null,['id']),
       fetchAll('results',null,['climber_id','route_id']), fetchAll('entries',null,['comp_id','user_id']), fetchAll('photos',null,['comp_id','route_id'])]);
     cs.forEach(r=>{ const c=compFromRow(r); docs['comps/'+r.id]={title:c.title, ownerId:c.ownerId, divisions:c.divisions, config:c.config, timer:c.timer,
-      selfScoring:c.selfScoring, createdAt:c.createdAt, setupDone:true, photoRoutes:ph.filter(p=>p.comp_id===r.id).map(p=>p.route_id)}; });
+      selfScoring:c.selfScoring, createdAt:c.createdAt, expiresAt:c.expiresAt, setupDone:true, photoRoutes:ph.filter(p=>p.comp_id===r.id).map(p=>p.route_id)}; });
     keys.forEach(r=>docs['compKeys/'+r.comp_id]={key:r.key});
     cl.forEach(r=>docs[`comps/${r.comp_id}/climbers/${r.id}`]=climberFromRow(r));
     rs.forEach(r=>docs[`comps/${r.comp_id}/results/${rKey(r.climber_id,r.route_id)}`]={climberId:r.climber_id, routeId:r.route_id, attempts:r.attempts});
@@ -308,7 +336,9 @@ async function importComp(cid, docs, progress){
   const existing=comps[cid];
   await must(sb.from('comps').upsert({ id:cid, title:(c.title||'未命名比賽').slice(0,100), owner_id:existing?existing.ownerId:myId,
     divisions:c.divisions||[], config:c.config||{climbMin:4,restMin:0}, timer:c.timer||DEFAULT_TIMER,
-    self_scoring:c.selfScoring!==false, created_at:iso(c.createdAt) }), '比賽');
+    self_scoring:c.selfScoring!==false, created_at:iso(c.createdAt),
+    // 備份檔裡有到期日就照用（null = 永久保留）；Firebase 舊資料沒有，就從現在起算 10 天
+    ...(c.expiresAt===null?{expires_at:null}:c.expiresAt>Date.now()?{expires_at:iso(c.expiresAt)}:{}) }), '比賽');
   const k=docs['compKeys/'+cid];
   if(k&&k.key) await must(sb.from('comp_keys').update({key:k.key}).eq('comp_id',cid), '管理碼');
   const climbers=sub('climbers').map(([id,d])=>({id, comp_id:cid, name:String(d.name||'?').slice(0,50), division:d.division, created_at:iso(d.createdAt)}));
@@ -478,12 +508,12 @@ $('startComp').onclick=async()=>{
   const {error}=await sb.from('comps').insert(row);
   $('startComp').disabled=false;
   if(error){ console.warn(error); alert('建立失敗，請重新整理後再試一次。'); return; }
-  comps[id]=compFromRow({...row, created_at:iso(now())});
+  comps[id]=compFromRow({...row, created_at:iso(now()), expires_at:iso(now()+10*DAY)});
   openComp(id);
   const {data}=await sb.from('comp_keys').select('key').eq('comp_id',id);
   const key=data&&data[0]&&data[0].key;
   if(key&&compId===id){ compKey=key; render(); }
-  alert(`比賽建立好了！\n\n管理碼：${key||'（請稍後在比賽頁查看）'}\n\n請記下來。換手機或清除瀏覽器資料後，在比賽頁按「輸入管理碼」就能拿回計時和管理權限，也可以給協助你的裁判。`);
+  alert(`比賽建立好了！\n\n管理碼：${key||'（請稍後在比賽頁查看）'}\n\n請記下來。換手機或清除瀏覽器資料後，在比賽頁按「輸入管理碼」就能拿回計時和管理權限，也可以給協助你的裁判。\n\n這場比賽會在 10 天後自動刪除。`);
 };
 
 /* ---------- 計時器 ---------- */
@@ -544,6 +574,14 @@ $('tNext').onclick=()=>{
   else setTimer({round:t.round+1,elapsed:0,running:false});
 };
 $('tReset').onclick=()=>{ if(!canControlTimer()||!confirm('把這一輪的時間重設回開頭？')) return; setTimer({elapsed:timerView().cycleStart,running:false}); };
+$('keepBtn').onclick=()=>{
+  if(!isSuper||M.comp.expiresAt===undefined) return;
+  const keep=M.comp.expiresAt!==null;
+  if(!confirm(keep?'把這場比賽設成永久保留（不會自動刪除）？':'改成從現在起 10 天後自動刪除？')) return;
+  const v=keep?null:now()+10*DAY;
+  comps[compId]={...M.comp, expiresAt:v}; render();
+  run(sb.from('comps').update({expires_at:v===null?null:iso(v)}).eq('id',compId));
+};
 $('tSwitch').onclick=()=>{
   if(timerMode()!=='both') return;
   const o=own(); o.useOwn=!o.useOwn; saveOwn(); last=null; render();
@@ -599,6 +637,9 @@ function renderTimer(){
   const ctl=canControlTimer();
   document.querySelectorAll('.t-ctl').forEach(e=>e.style.display=ctl?'':'none');
   $('timerLine').hidden=mode==='shared';
+  const ex=expiryText(M.comp,true);
+  $('expiryLine').hidden=!ex; $('expiryText').textContent=ex;
+  $('keepBtn').textContent=M.comp.expiresAt===null?'改回 10 天後刪除':'永久保留';
   $('tSwitch').hidden=mode!=='both';
   $('timerLineText').textContent=mode==='self'?'⏱ 各自計時：上方計時器只在你的手機上跑'
     :usingOwn()?'⏱ 目前顯示：我的計時':'⏱ 目前顯示：教練計時';
@@ -808,7 +849,7 @@ function renderPortal(){
     : banner();
   $('loginBtn').textContent=(myId&&!isAnon)?`登出（${myEmail}）`:'管理員登入';
   const list=$('compList'); list.innerHTML='';
-  const items=Object.entries(comps).filter(([,c])=>c&&Array.isArray(c.divisions)&&c.divisions.length)
+  const items=Object.entries(comps).filter(([,c])=>c&&Array.isArray(c.divisions)&&c.divisions.length&&!isExpired(c))
     .sort((a,b)=>(b[1].createdAt||0)-(a[1].createdAt||0));
   if(!items.length){ list.innerHTML=`<li class="empty">${compsLoaded?'還沒有比賽，按上面的按鈕建立第一場。':setupProblems.comps?'無法載入比賽清單。':'載入中…'}</li>`; return; }
   items.forEach(([id,c])=>{
@@ -816,7 +857,8 @@ function renderPortal(){
     const d=c.createdAt?new Date(c.createdAt):null;
     const date=d?`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`:'';
     const live=c.timer&&c.timer.running, mine=myId&&c.ownerId===myId;
-    li.innerHTML=`<div><h3></h3><p>${esc(date)}・${c.divisions.map(x=>esc(x.name)+' '+x.routes.length+' 條').join('、')}</p></div><span class="badge${live?' live':''}">${live?'進行中':mine?'我主辦':'查看'}</span>`;
+    const exp=expiryText(c,false);
+    li.innerHTML=`<div><h3></h3><p>${esc(date)}・${c.divisions.map(x=>esc(x.name)+' '+x.routes.length+' 條').join('、')}${exp?'・'+esc(exp):''}</p></div><span class="badge${live?' live':''}">${live?'進行中':mine?'我主辦':'查看'}</span>`;
     li.querySelector('h3').textContent=c.title||'未命名比賽';
     li.onclick=()=>openComp(id);
     li.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openComp(id); } };

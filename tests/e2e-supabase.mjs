@@ -116,6 +116,10 @@ try {
   check('主辦開始計時', await until(() => text(A, '#tToggle').then(t => t.includes('暫停'))));
   const compUrl = A.url();
   check('比賽有自己的網址（可以分享）', /\?c=/.test(compUrl), compUrl);
+  check('比賽頁顯示 10 天後自動刪除', await until(() => text(A, '#expiryText').then(t => /10 天後.*自動刪除/.test(t))), await text(A, '#expiryText'));
+  check('主辦看不到「永久保留」按鈕', !(await vis(A, '#keepBtn')));
+  let rr = await A.evaluate(async () => { const { error } = await sb.from('comps').update({ expires_at: null }).eq('id', compId); return error ? 'blocked' : 'ok'; });
+  check('主辦繞過畫面也不能延長／永久保留', rr !== 'ok', rr);
 
   // ---------- B：選手點連結進來 ----------
   const B = await phone([], compUrl);
@@ -213,7 +217,13 @@ try {
   // ---------- 系統管理員管理別人的比賽、匯出 ----------
   await S.goto(compUrl);
   check('系統管理員可以管理別人建的比賽', await until(() => vis(S, '#tToggle')));
+  check('系統管理員看得到「永久保留」按鈕', await vis(S, '#keepBtn'));
+  await S.click('#keepBtn');
+  check('系統管理員設成永久保留，選手端同步看到', await until(() => text(B, '#expiryText').then(t => t.includes('永久保留'))));
+  await S.click('#keepBtn');
+  check('改回 10 天後刪除', await until(() => text(B, '#expiryText').then(t => /天後.*自動刪除/.test(t))));
   await S.click('#backBtn');
+  check('入口頁列出剩幾天自動刪除', /天後自動刪除/.test(await text(S, '#compList')));
   const [dl] = await Promise.all([S.waitForEvent('download', { timeout: 60000 }), S.click('#exportBtn')]);
   const exp = JSON.parse(readFileSync(await dl.path(), 'utf8'));
   const keys = Object.keys(exp.docs);
@@ -230,6 +240,13 @@ try {
   check('刪除比賽時照片檔也一起刪掉', left === 0, String(left));
   check('入口頁不再列出被刪的比賽', !(await text(B, '#compList')).includes('小明的練習賽'));
 
+  // 比賽被自動刪除後留下的照片檔：系統管理員打開網站時會清掉
+  const orphan = 'orphan' + Date.now();
+  await fetch(`${URL_}/storage/v1/object/route-photos/${orphan}/x.jpg`, { method: 'POST', headers: { apikey: SERVICE, Authorization: 'Bearer ' + SERVICE, 'Content-Type': 'image/jpeg' }, body: Buffer.from([0xff, 0xd8, 0xff, 0xd9]) });
+  const listOrphan = async () => (await (await svc('/storage/v1/object/list/route-photos', { method: 'POST', body: JSON.stringify({ prefix: orphan + '/' }) })).json()).length;
+  const before = await listOrphan();
+  await S.reload();
+  check('系統管理員打開網站時清掉已刪除比賽的照片檔', before === 1 && await until(async () => (await listOrphan()) === 0, 15000), `前 ${before}`);
   check('沒有程式錯誤', !allErrs.length, allErrs.slice(0, 4).join(' | '));
 } catch (e) {
   console.error(e); res.push(false);

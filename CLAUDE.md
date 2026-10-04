@@ -33,7 +33,7 @@
 - 選手只能新增／修改／刪除自己的報名；主辦關閉自行記分時，選手不能改成績。
 - 管理碼只有主辦看得到；驗證在伺服器端進行。
 - 不能把比賽的主辦轉給別人。
-- 參考：`reference/firestore.rules`（Firebase 版）與 `supabase/schema.sql`（Supabase 版，已在本機 Supabase 實測，權限測試 `supabase/tests/rls-test.sql` 51 項全過）。
+- 參考：`reference/firestore.rules`（Firebase 版）與 `supabase/schema.sql`（Supabase 版，已在本機 Supabase 實測，權限測試 `supabase/tests/rls-test.sql` 61 項全過）。
 
 ## 舊資料搬移
 - `data/firebase-export.json`：目前「原岩模擬賽」完整資料（含 10 張圈好的路線照片、6 位選手、成績）。格式 `{app, version, docs: {path: data}}`，path 例如 `comps/<id>`、`comps/<id>/climbers/<id>`、`comps/<id>/results/<climberId>__<routeId>`、`comps/<id>/photos/<routeId>`（照片為 data URL）。
@@ -58,9 +58,10 @@
 - `supabase/schema.sql`：資料庫結構＋權限（RLS）＋照片 Storage 桶子 `route-photos`＋Realtime，可重複執行。
 - `supabase/check-setup.sql`：給 Yam 在 Supabase SQL Editor 執行的健康檢查（只讀，會模擬選手報名並回復），出問題時先請他跑這個。
 - `supabase/tests/rls-test.sql`：資料庫權限測試（用 psql 執行，整段 rollback 不留資料）。
-- `tests/e2e-supabase.mjs`：Playwright 端對端測試，連真的 Supabase（本機自架或測試專案），用法寫在檔案開頭。上次結果 60/60。
+- `tests/e2e-supabase.mjs`：Playwright 端對端測試，連真的 Supabase（本機自架或測試專案），用法寫在檔案開頭。上次結果 68/68。
 - `docs/上線步驟.md`：給 Yam 的 Supabase／Netlify 設定步驟。
 - 舊資料搬移：做在網站裡（系統管理員登入 →「匯入資料」），可吃 Firebase 匯出檔和本系統的備份檔；照片會上傳到 Storage。
 - 計時方式（v1.3）：`comps.config.timerMode` = `shared`（教練統一計時，預設）／`self`（學員各自計時）／`both`（可切換）。學員自己的計時存在手機 localStorage（`origin-climb-own-timers`），不進資料庫。
+- 十天自動刪除（v1.5）：`comps.expires_at`（建立時由觸發器設成 now()+10 天，只有系統管理員能改；null = 永久保留）。pg_cron 排程 `delete-expired-comps` 每天 UTC 19:00 執行 `delete_expired_comps()`。照片檔不能從 SQL 刪，由系統管理員登入時 `cleanOrphanPhotos()` 清掉沒有對應比賽的 Storage 資料夾。
 - 與原型的差異：計時器用伺服器時間校正（`server_now_ms()`）；比賽有分享網址 `?c=<比賽id>`；管理碼 10 分鐘內錯 30 次會暫時鎖住。
 - 本機測試環境：Supabase 官方自架 docker compose（`supabase/docker`），在雲端環境裡可用 `dockerd` 啟動。

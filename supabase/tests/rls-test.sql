@@ -63,6 +63,14 @@ select pg_temp.expect('主辦能記成績', $$insert into results(comp_id,climbe
 select pg_temp.expect('主辦能存照片標記', $$insert into photos(comp_id,route_id,image_path) values ('c1','r1','c1/r1.jpg')$$, true);
 select pg_temp.expect('主辦不能把比賽轉給別人', $$update comps set owner_id='00000000-0000-0000-0000-00000000000b' where id='c1'$$, false);
 select pg_temp.expect('主辦不能改比賽 id', $$update comps set id='zzz' where id='c1'$$, false);
+select pg_temp.check('新比賽自動設定 10 天後刪除',
+  (select expires_at between now() + interval '9 days 23 hours' and now() + interval '10 days 1 hour' from comps where id='c1'));
+select pg_temp.expect('主辦不能延長自動刪除日期', $$update comps set expires_at=now()+interval '1 year' where id='c1'$$, false);
+select pg_temp.expect('主辦不能設成永久保留', $$update comps set expires_at=null where id='c1'$$, false);
+select pg_temp.expect('建立時自己指定到期日也沒用（會被改回 10 天）',
+  $$insert into comps(id,title,owner_id,divisions,config,expires_at) values ('c5','x','00000000-0000-0000-0000-00000000000a','[]','{}',now()+interval '5 years')$$, true);
+select pg_temp.check('自己指定的到期日被改回 10 天', (select expires_at < now() + interval '11 days' from comps where id='c5'));
+select pg_temp.expect('一般人不能手動執行「刪除到期比賽」', $$select delete_expired_comps()$$, false);
 
 -- ---------- 選手 ----------
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
@@ -132,6 +140,14 @@ select pg_temp.expect('系統管理員可以替別人建立比賽（匯入用）
   $$insert into comps(id,title,owner_id,divisions,config) values ('c4','匯入','00000000-0000-0000-0000-00000000000a','[]','{}')$$, true);
 select pg_temp.expect('系統管理員能改管理碼（匯入用）', $$update comp_keys set key='ABCDEF' where comp_id='c4'$$, true);
 select pg_temp.expect('系統管理員能刪比賽', $$delete from comps where id='c4'$$, true);
+select pg_temp.expect('系統管理員能設成永久保留', $$update comps set expires_at=null where id='c1'$$, true);
+select pg_temp.expect('系統管理員能把已到期的比賽改回來', $$update comps set expires_at=now()-interval '1 day' where id='c5'$$, true);
+-- 模擬排程：用資料庫管理者身分執行刪除
+select set_config('role','postgres',true);
+create temp table _del as select delete_expired_comps() as n;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+select pg_temp.check('排程只刪到期的比賽', (select count(*) from comps where id='c5') = 0 and (select count(*) from comps where id='c1') = 1);
+select pg_temp.check('永久保留的比賽不會被刪', (select expires_at is null from comps where id='c1'));
 
 -- ---------- 照片儲存 ----------
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
