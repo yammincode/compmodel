@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>原岩攀岩比賽</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+</head>
+<body>
+<main>
+
+<div class="center" id="loadingView">連線中…</div>
+
+<section class="portal" id="portalView" hidden>
+  <h1>攀岩比賽</h1>
+  <p class="rule">選一場比賽報名參加、看成績，或建立你自己的比賽。</p>
+  <div class="banner" id="portalBanner"></div>
+  <button class="btn big" id="newCompBtn" style="margin-bottom:16px">＋ 建立新比賽</button>
+  <ul class="comp-list" id="compList"></ul>
+  <div class="foot" style="margin-top:24px">
+    <button class="link super-only" id="importBtn">匯入資料</button>
+    <button class="link super-only" id="exportBtn">匯出備份</button>
+    <button class="link" id="loginBtn">管理員登入</button>
+    <input type="file" id="importInput" accept=".json,application/json" hidden>
+  </div>
+</section>
+
+<!-- ===== 賽前設定 ===== -->
+<section class="setup" id="setupView" hidden>
+  <button class="back" id="setupBack">← 所有比賽</button>
+  <h1>建立比賽</h1>
+  <p class="rule">開始前決定組別、每組路線數量和計時方式，比賽中不會再變動。</p>
+  <div class="card">
+    <div class="field">
+      <label for="sTitle">比賽名稱</label>
+      <input class="text" id="sTitle" value="原岩模擬賽">
+    </div>
+    <div class="field">
+      <label>組別與路線</label>
+      <div id="divDraft"></div>
+      <button type="button" class="link" id="addDiv">＋ 新增組別</button>
+    </div>
+    <div class="field">
+      <label>每輪攀爬時間</label>
+      <div class="stepper">
+        <button type="button" data-step="climb" data-d="-1" aria-label="減少一分鐘">−</button>
+        <output id="sClimb">4</output>
+        <button type="button" data-step="climb" data-d="1" aria-label="增加一分鐘">＋</button>
+        <span class="unit">分鐘</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>每輪休息時間</label>
+      <div class="stepper">
+        <button type="button" data-step="rest" data-d="-1" aria-label="減少一分鐘">−</button>
+        <output id="sRest">0</output>
+        <button type="button" data-step="rest" data-d="1" aria-label="增加一分鐘">＋</button>
+        <span class="unit">分鐘</span>
+      </div>
+      <p class="note">設 0 分鐘：每輪結束就停，手動開始下一輪。設 1 分鐘以上：攀爬、休息自動輪替。</p>
+    </div>
+    <button class="btn big" id="startComp">建立比賽</button>
+  </div>
+</section>
+
+<!-- ===== 比賽畫面 ===== -->
+<section id="compView" hidden>
+  <div class="timer" id="timer">
+    <div class="t-info">
+      <div class="t-phase" id="tPhase"></div>
+      <div class="t-clock" id="tClock"></div>
+    </div>
+    <div class="t-btns">
+      <button class="main edit-only" id="tToggle">開始</button>
+      <button class="edit-only" id="tNext" aria-label="跳到下一階段">⏭</button>
+      <button class="edit-only" id="tReset" aria-label="重設這一輪">↺</button>
+      <button id="tSound" aria-label="提示音開關">🔔</button>
+    </div>
+  </div>
+
+  <button class="back" id="backBtn">← 所有比賽</button>
+  <p class="title" id="title"></p>
+  <p class="rule" id="ruleLine"></p>
+  <div class="banner" id="modeBanner"></div>
+  <div class="sub" id="shareLine" style="margin:-4px 0 12px"><span class="hint">把比賽連結傳給選手，點開就能報名</span><button class="link" id="shareBtn">複製比賽連結</button></div>
+
+  <section class="card" id="joinCard" hidden>
+    <h2 style="margin-bottom:10px">報名參加</h2>
+    <input class="text" id="joinName" placeholder="你的名字" autocomplete="name" style="margin-bottom:10px">
+    <div class="seg" id="joinDivs"></div>
+    <button class="btn big" id="joinBtn">報名</button>
+    <p class="hint" id="joinMsg" style="margin:8px 0 0"></p>
+  </section>
+  <div class="banner" id="keyLine" hidden></div>
+  <div class="sub" id="claimLine" hidden style="margin:-4px 0 12px"><span class="hint">你是這場比賽的主辦？</span><button class="link" id="claimBtn">輸入管理碼</button></div>
+  <div class="sub" id="meLine" hidden style="margin:-4px 0 12px"><span class="hint" id="meText"></span><button class="link" id="leaveBtn">取消報名</button></div>
+
+  <nav class="divtabs" id="divtabs" aria-label="組別"></nav>
+
+  <div class="add edit-only">
+    <input id="nameInput" placeholder="輸入選手名字報名" autocomplete="off">
+    <button class="btn" id="addBtn" type="button">新增選手</button>
+  </div>
+
+  <nav class="tabs" id="tabs" aria-label="排行切換"></nav>
+
+  <section class="card" id="nowCard" hidden>
+    <div class="now-head">
+      <div>
+        <p class="now-route" id="nowRoute"></p>
+        <p class="now-name" id="nowName"></p>
+      </div>
+      <div class="big-score" id="nowScore">0.0</div>
+    </div>
+    <p class="status" id="nowStatus"></p>
+    <div class="strip" id="strip" aria-label="嘗試紀錄"></div>
+    <div class="actions">
+      <button class="act f" data-r="f">失敗<small>沒拿到 Zone</small></button>
+      <button class="act z" data-r="z">Zone<small>這次到 Zone</small></button>
+      <button class="act t" data-r="t">Top<small>完攀</small></button>
+    </div>
+    <div class="sub">
+      <button class="link" id="undoBtn">復原上一筆</button>
+      <button class="link danger" id="delBtn">刪除選手</button>
+      <span class="hint" id="lockMsg" hidden>主辦還沒開放自行記分</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="board-head">
+      <h2 id="boardTitle">總排行</h2>
+      <span class="hint" id="boardHint"></span>
+    </div>
+    <div class="photo" id="photoBox" hidden><div class="pwrap" id="photoWrap"><img id="photoImg" alt="路線照片"><svg id="photoSvg" aria-hidden="true"></svg></div></div>
+    <ol class="board" id="board"></ol>
+    <div class="sub edit-only" id="routeTools" hidden>
+      <button class="link" id="renameRouteBtn">重新命名路線</button>
+      <button class="link" id="photoBtn">上傳路線照片</button>
+      <button class="link" id="markBtn" hidden>圈路線</button>
+      <button class="link danger" id="photoDelBtn" hidden>刪除照片</button>
+      <input type="file" id="photoInput" accept="image/*" hidden>
+    </div>
+  </section>
+
+  <div class="foot edit-only">
+    <button class="link" id="selfToggle"></button>
+    <button class="link danger" id="resetBtn">清除成績</button>
+    <button class="link danger" id="delCompBtn">刪除這場比賽</button>
+  </div>
+</section>
+  <footer class="ver">
+    <button class="link" id="verBtn" aria-expanded="false"></button>
+    <div class="card" id="verCard" hidden><h2 style="margin-bottom:8px">更新紀錄</h2><div id="verList"></div></div>
+  </footer>
+</main>
+<div class="lightbox" id="lightbox" hidden><div class="pwrap" id="lightWrap"><img id="lightImg" alt="路線照片放大"><svg id="lightSvg" aria-hidden="true"></svg></div></div>
+
+<div class="editor" id="editor" hidden>
+  <div class="ed-top">
+    <button class="ed-cancel" id="edCancel">取消</button>
+    <b id="edTitle">圈路線</b>
+    <button class="ed-save" id="edSave">儲存</button>
+  </div>
+  <div class="ed-stage" id="edStage">
+    <div class="pwrap" id="edWrap"><img id="edImg" alt="" draggable="false"><svg id="edSvg"></svg></div>
+  </div>
+  <div class="ed-bar">
+    <div class="ed-tools" id="edTools">
+      <button data-tool="hand" style="color:#2EE65C"><i></i>手點</button>
+      <button data-tool="foot" style="color:#2EE65C"><i style="border-style:dashed"></i>腳點</button>
+      <button data-tool="start" style="color:#3D9BFF"><i></i>Start</button>
+      <button data-tool="zone" style="color:#FFC400"><i></i>Zone</button>
+      <button data-tool="top" style="color:#FF4A3D"><i></i>Top</button>
+    </div>
+    <div class="ed-row">
+      <span>大小</span><input type="range" id="edSize" min="0.012" max="0.12" step="0.002" value="0.035" aria-label="圈圈大小">
+    </div>
+    <div class="ed-row">
+      <button id="edUndo">復原</button>
+      <button id="edDel">刪除選取</button>
+      <button id="edClear">全部清除</button>
+    </div>
+    <p class="ed-hint">點照片空白處加一個圈，拖曳可移動，點一下圈圈可選取後調整大小或刪除。</p>
+  </div>
+</div>
+<script src="changelog.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

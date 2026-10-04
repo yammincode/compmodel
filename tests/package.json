@@ -1,0 +1,11 @@
+{
+  "name": "origin-climb-tests",
+  "private": true,
+  "type": "module",
+  "description": "原岩攀岩比賽系統的端對端測試（不會被部署到 Netlify）",
+  "scripts": { "e2e": "node e2e-supabase.mjs" },
+  "devDependencies": {
+    "@supabase/supabase-js": "2.117.2",
+    "playwright": "1.56.1"
+  }
+}

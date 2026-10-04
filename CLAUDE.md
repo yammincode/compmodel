@@ -33,7 +33,7 @@
 - 選手只能新增／修改／刪除自己的報名；主辦關閉自行記分時，選手不能改成績。
 - 管理碼只有主辦看得到；驗證在伺服器端進行。
 - 不能把比賽的主辦轉給別人。
-- 參考：`reference/firestore.rules`（Firebase 版）與 `supabase/schema.sql`（Supabase 草稿，**尚未實際測試**，請先檢查與測試）。
+- 參考：`reference/firestore.rules`（Firebase 版）與 `supabase/schema.sql`（Supabase 版，已在本機 Supabase 實測，權限測試 `supabase/tests/rls-test.sql` 51 項全過）。
 
 ## 舊資料搬移
 - `data/firebase-export.json`：目前「原岩模擬賽」完整資料（含 10 張圈好的路線照片、6 位選手、成績）。格式 `{app, version, docs: {path: data}}`，path 例如 `comps/<id>`、`comps/<id>/climbers/<id>`、`comps/<id>/results/<climberId>__<routeId>`、`comps/<id>/photos/<routeId>`（照片為 data URL）。
@@ -47,3 +47,18 @@
 4. 寫匯入腳本搬舊資料
 5. 設定 Netlify 連 GitHub 自動部署，環境變數放 Supabase URL 與 anon key
 6. 用兩支手機實測：主辦計時、選手報名記分、管理碼取回權限
+
+## 版本資訊（每次更新都要做）
+- 版本紀錄在 `web/changelog.js`，網站最下方會顯示目前版本，點開可看更新紀錄。
+- **每次更新程式都要在 `window.CHANGELOG` 最上面加一筆**：版本號比上一版加 0.1（v1.0 → v1.1 → v1.2 … v1.9 → v2.0），日期用當天，`notes` 用白話繁體中文寫這次改了什麼（給 Yam 和使用者看的，不寫技術細節）。
+- commit 訊息開頭也標上版本號，例如「v1.1：新增…」。
+
+## 目前進度與檔案結構（Supabase 版）
+- `web/`：網站本體（Netlify 發布這個資料夾）。`index.html` 畫面、`style.css`、`app.js` 程式；`config.js` 由 `scripts/build-config.mjs` 在 Netlify 建置時從環境變數 `SUPABASE_URL`、`SUPABASE_ANON_KEY` 產生，不進 Git。
+- `supabase/schema.sql`：資料庫結構＋權限（RLS）＋照片 Storage 桶子 `route-photos`＋Realtime，可重複執行。
+- `supabase/tests/rls-test.sql`：資料庫權限測試（用 psql 執行，整段 rollback 不留資料）。
+- `tests/e2e-supabase.mjs`：Playwright 端對端測試，連真的 Supabase（本機自架或測試專案），用法寫在檔案開頭。上次結果 52/52。
+- `docs/上線步驟.md`：給 Yam 的 Supabase／Netlify 設定步驟。
+- 舊資料搬移：做在網站裡（系統管理員登入 →「匯入資料」），可吃 Firebase 匯出檔和本系統的備份檔；照片會上傳到 Storage。
+- 與原型的差異：計時器用伺服器時間校正（`server_now_ms()`）；比賽有分享網址 `?c=<比賽id>`；管理碼 10 分鐘內錯 30 次會暫時鎖住。
+- 本機測試環境：Supabase 官方自架 docker compose（`supabase/docker`），在雲端環境裡可用 `dockerd` 啟動。

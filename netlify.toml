@@ -1,0 +1,19 @@
+# Netlify 設定：連上 GitHub 後會自動讀這個檔
+[build]
+  publish = "web"
+  command = "node scripts/build-config.mjs"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# config.js 每次部署都會變，不要讓手機快取太久
+[[headers]]
+  for = "/config.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
